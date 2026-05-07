@@ -4,6 +4,8 @@ import subprocess
 import tempfile
 import os
 
+import uvicorn
+
 app = FastAPI()
 
 class TestCode(BaseModel):
@@ -46,3 +48,8 @@ async def test_judge(body: TestCode):
         except subprocess.TimeoutExpired:
             return {"status": "timeout", "message": "Took too long~"}
 
+if __name__ == "__main__":
+    # Run the interactive setup (Theme picker & JWT Gen)
+    # This blocks until the user finishes setu
+    
+    uvicorn.run("main:app", host="127.0.0.1", port=5893, reload=False)
