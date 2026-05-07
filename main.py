@@ -1,13 +1,22 @@
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 import subprocess
 import tempfile
 import os
 
-import uvicorn
-
 app = FastAPI()
 
+# -------------------------------------------------------
+# 🎨 Playground page at /
+# -------------------------------------------------------
+@app.get("/", response_class=HTMLResponse)
+async def playground():
+    return FileResponse("index.html")
+
+# -------------------------------------------------------
+# 🧪 Test judge endpoint
+# -------------------------------------------------------
 class TestCode(BaseModel):
     code: str
 
@@ -47,9 +56,3 @@ async def test_judge(body: TestCode):
             }
         except subprocess.TimeoutExpired:
             return {"status": "timeout", "message": "Took too long~"}
-
-if __name__ == "__main__":
-    # Run the interactive setup (Theme picker & JWT Gen)
-    # This blocks until the user finishes setu
-    
-    uvicorn.run("main:app", host="127.0.0.1", port=5893, reload=False)

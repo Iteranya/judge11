@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐳 Judge Test Playground</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Fira Code', 'Consolas', monospace; background: #1a1a2e; color: #eee; height: 100vh; display: flex; flex-direction: column; }
+        .header { background: #16213e; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #e94560; }
+        .header h1 { font-size: 1.1rem; color: #e94560; }
+        .header span { font-size: 0.75rem; color: #888; }
+        .main { display: flex; flex: 1; overflow: hidden; }
+        .panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #333; }
+        .panel:last-child { border-right: none; }
+        .panel-header { background: #16213e; padding: 8px 16px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; color: #999; }
+        .panel-header .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .dot.red { background: #e94560; }
+        .dot.green { background: #4ecca3; }
+        textarea { flex: 1; background: #0f0f23; color: #a8d8a8; border: none; padding: 16px; font-family: 'Fira Code', 'Consolas', monospace; font-size: 0.85rem; resize: none; outline: none; line-height: 1.6; tab-size: 4; }
+        #output { flex: 1; background: #0f0f23; color: #ccc; padding: 16px; font-size: 0.85rem; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; }
+        .btn-row { padding: 10px 20px; background: #16213e; border-top: 1px solid #333; display: flex; gap: 10px; align-items: center; }
+        button { padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.8rem; font-weight: bold; transition: 0.2s; }
+        #runBtn { background: #e94560; color: #fff; }
+        #runBtn:hover { background: #ff6b81; }
+        #runBtn:disabled { background: #555; cursor: not-allowed; }
+        #status { font-size: 0.75rem; color: #888; margin-left: auto; }
+        .verdict-ac { color: #4ecca3; font-weight: bold; }
+        .verdict-err { color: #e94560; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🐳 Judge Test Playground</h1>
+        <span id="endpoint">POST /test</span>
+    </div>
+    <div class="main">
+        <div class="panel">
+            <div class="panel-header"><span class="dot red"></span> C++ Code</div>
+            <textarea id="code" spellcheck="false">#include <iostream>
+int main() {
+    std::cout << "Hello World!" << std::endl;
+    return 0;
+}</textarea>
+        </div>
+        <div class="panel">
+            <div class="panel-header"><span class="dot green"></span> Output</div>
+            <div id="output">// Click "Run" to test the judge~ ✨</div>
+        </div>
+    </div>
+    <div class="btn-row">
+        <button id="runBtn" onclick="runCode()">▶ Run (Ctrl+Enter)</button>
+        <span id="status">Ready</span>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const status = document.getElementById('status');
+        const runBtn = document.getElementById('runBtn');
+        const textarea = document.getElementById('code');
+
+        // Ctrl+Enter shortcut
+        textarea.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') runCode();
+        });
+
+        async function runCode() {
+            const code = textarea.value;
+            if (!code.trim()) return;
+
+            runBtn.disabled = true;
+            status.textContent = 'Compiling...';
+            output.textContent = '';
+
+            try {
+                const res = await fetch('http://localhost:3001/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code }),
+                });
+                const data = await res.json();
+
+                if (data.status === 'ok') {
+                    output.innerHTML = `<span class="verdict-ac">✓ Compiled & Ran Successfully</span>\n\n${escapeHtml(data.stdout)}`;
+                    if (data.stderr) output.innerHTML += `\n\n<span class="verdict-err">[stderr]</span>\n${escapeHtml(data.stderr)}`;
+                    status.textContent = `Done (exit ${data.exit_code})`;
+                } else if (data.status === 'compile_error') {
+                    output.innerHTML = `<span class="verdict-err">✗ Compilation Error</span>\n\n${escapeHtml(data.stderr)}`;
+                    status.textContent = 'Compile Error';
+                } else if (data.status === 'timeout') {
+                    output.innerHTML = `<span class="verdict-err">⏱ Timeout</span>\n\n${data.message}`;
+                    status.textContent = 'Timeout';
+                }
+            } catch (err) {
+                output.innerHTML = `<span class="verdict-err">✗ Connection Error</span>\n\n${escapeHtml(err.message)}\n\nMake sure uvicorn is running on port 3001!`;
+                status.textContent = 'Error';
+            } finally {
+                runBtn.disabled = false;
+            }
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>');
+        }
+    </script>
+</body>
+</html>
