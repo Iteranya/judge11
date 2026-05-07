@@ -73,7 +73,7 @@ int main() {
             output.textContent = '';
 
             try {
-                const res = await fetch('http://localhost:3001/test', {
+                const res = await fetch('/test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ code }),
