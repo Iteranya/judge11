@@ -1,3 +1,5 @@
+import time
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
@@ -37,7 +39,8 @@ async def test_judge(body: TestCode):
         with open(cpp_file, "w") as f:
             f.write(body.code)
 
-        # Compile
+        # ⏱️ Compile
+        t0 = time.time()
         compile_result = subprocess.run(
             ["docker", "run", "--rm",
              "-v", f"{tmpdir}:/code", "-w", "/code",
@@ -45,11 +48,17 @@ async def test_judge(body: TestCode):
              "gcc:latest", "g++", "-std=c++17", "test.cpp", "-o", "test"],
             capture_output=True, text=True, timeout=10,
         )
+        compile_ms = round((time.time() - t0) * 1000, 1)
 
         if compile_result.returncode != 0:
-            return {"status": "compile_error", "stderr": compile_result.stderr}
+            return {
+                "status": "compile_error",
+                "stderr": compile_result.stderr,
+                "compile_ms": compile_ms,
+            }
 
-        # Run
+        # ⏱️ Run
+        t1 = time.time()
         try:
             run_result = subprocess.run(
                 ["docker", "run", "--rm",
@@ -58,14 +67,23 @@ async def test_judge(body: TestCode):
                  "gcc:latest", "./test"],
                 capture_output=True, text=True, timeout=5,
             )
+            run_ms = round((time.time() - t1) * 1000, 1)
             return {
                 "status": "ok",
                 "stdout": run_result.stdout,
                 "stderr": run_result.stderr,
                 "exit_code": run_result.returncode,
+                "compile_ms": compile_ms,
+                "run_ms": run_ms,
             }
         except subprocess.TimeoutExpired:
-            return {"status": "timeout", "message": "Took too long~"}
+            run_ms = round((time.time() - t1) * 1000, 1)
+            return {
+                "status": "timeout",
+                "message": "Took too long~",
+                "compile_ms": compile_ms,
+                "run_ms": run_ms,
+            }
 
 if __name__ == "__main__":
     # Run the interactive setup (Theme picker & JWT Gen)
