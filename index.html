@@ -92,7 +92,7 @@ int main() {
                     status.textContent = 'Timeout';
                 }
             } catch (err) {
-                output.innerHTML = `<span class="verdict-err">✗ Connection Error</span>\n\n${escapeHtml(err.message)}\n\nMake sure uvicorn is running on port 3001!`;
+                output.innerHTML = `<span class="verdict-err">✗ Connection Error</span>\n\n${escapeHtml(err.message)}`;
                 status.textContent = 'Error';
             } finally {
                 runBtn.disabled = false;

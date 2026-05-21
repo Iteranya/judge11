@@ -4,10 +4,18 @@ from pydantic import BaseModel
 import subprocess
 import tempfile
 import os
-
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],          # Allow everything for now~
+    allow_credentials=False,       # Must be False when using *
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # -------------------------------------------------------
 # 🎨 Playground page at /
