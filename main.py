@@ -13,80 +13,85 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # Allow everything for now~
-    allow_credentials=False,       # Must be False when using *
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# -------------------------------------------------------
-# 🎨 Playground page at /
-# -------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def playground():
     return FileResponse("index.html")
 
-# -------------------------------------------------------
-# 🧪 Test judge endpoint
-# -------------------------------------------------------
 class TestCode(BaseModel):
     code: str
+
+RUNNER_SCRIPT = """\
+#!/bin/sh
+START_C=$(date +%s%3N)
+g++ -std=c++17 test.cpp -o test 2>/tmp/cerr
+COMPILE_EXIT=$?
+END_C=$(date +%s%3N)
+echo "COMPILE_MS:$((END_C - START_C))" >&2
+
+if [ $COMPILE_EXIT -ne 0 ]; then
+    cat /tmp/cerr >&2
+    exit $COMPILE_EXIT
+fi
+
+START_R=$(date +%s%3N)
+./test
+END_R=$(date +%s%3N)
+echo "RUN_MS:$((END_R - START_R))" >&2
+"""
 
 @app.post("/test")
 async def test_judge(body: TestCode):
     with tempfile.TemporaryDirectory() as tmpdir:
-        cpp_file = os.path.join(tmpdir, "test.cpp")
-        with open(cpp_file, "w") as f:
+        with open(os.path.join(tmpdir, "test.cpp"), "w") as f:
             f.write(body.code)
+        with open(os.path.join(tmpdir, "run.sh"), "w") as f:
+            f.write(RUNNER_SCRIPT)
 
-        # ⏱️ Compile
         t0 = time.time()
-        compile_result = subprocess.run(
-            ["docker", "run", "--rm",
-             "-v", f"{tmpdir}:/code", "-w", "/code",
-             "--network=none", "--memory=128m",
-             "gcc:latest", "g++", "-std=c++17", "test.cpp", "-o", "test"],
-            capture_output=True, text=True, timeout=10,
-        )
-        compile_ms = round((time.time() - t0) * 1000, 1)
-
-        if compile_result.returncode != 0:
-            return {
-                "status": "compile_error",
-                "stderr": compile_result.stderr,
-                "compile_ms": compile_ms,
-            }
-
-        # ⏱️ Run
-        t1 = time.time()
         try:
-            run_result = subprocess.run(
+            result = subprocess.run(
                 ["docker", "run", "--rm",
                  "-v", f"{tmpdir}:/code", "-w", "/code",
                  "--network=none", "--memory=128m",
-                 "gcc:latest", "./test"],
-                capture_output=True, text=True, timeout=5,
+                 "gcc:latest", "sh", "run.sh"],
+                capture_output=True, text=True, timeout=15,
             )
-            run_ms = round((time.time() - t1) * 1000, 1)
+            elapsed_ms = round((time.time() - t0) * 1000, 1)
+
+            # Parse timing markers out of stderr
+            stderr_lines = result.stderr.splitlines()
+            compile_ms = next((int(l.split(":")[1]) for l in stderr_lines if l.startswith("COMPILE_MS:")), None)
+            run_ms     = next((int(l.split(":")[1]) for l in stderr_lines if l.startswith("RUN_MS:")), None)
+            clean_stderr = "\n".join(l for l in stderr_lines if not l.startswith(("COMPILE_MS:", "RUN_MS:")))
+
+            if result.returncode != 0 and run_ms is None:
+                return {
+                    "status": "compile_error",
+                    "stderr": clean_stderr,
+                    "compile_ms": compile_ms,
+                }
+
             return {
                 "status": "ok",
-                "stdout": run_result.stdout,
-                "stderr": run_result.stderr,
-                "exit_code": run_result.returncode,
+                "stdout": result.stdout,
+                "stderr": clean_stderr,
+                "exit_code": result.returncode,
                 "compile_ms": compile_ms,
                 "run_ms": run_ms,
+                "elapsed_ms": elapsed_ms,
             }
         except subprocess.TimeoutExpired:
-            run_ms = round((time.time() - t1) * 1000, 1)
             return {
                 "status": "timeout",
                 "message": "Took too long~",
-                "compile_ms": compile_ms,
-                "run_ms": run_ms,
+                "elapsed_ms": round((time.time() - t0) * 1000, 1),
             }
 
 if __name__ == "__main__":
-    # Run the interactive setup (Theme picker & JWT Gen)
-    # This blocks until the user finishes setu
-    
     uvicorn.run("main:app", host="127.0.0.1", port=5893, reload=False)
