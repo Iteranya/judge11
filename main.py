@@ -1,11 +1,12 @@
 import time
+import subprocess
+import tempfile
+import os
+import uuid
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
-import subprocess
-import tempfile
-import os
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -26,8 +27,11 @@ async def playground():
 class TestCode(BaseModel):
     code: str
 
+# Added 'ulimit -f 10000' to prevent the C++ code from writing massive files to disk
 RUNNER_SCRIPT = """\
 #!/bin/sh
+ulimit -f 10000 
+
 START_C=$(date +%s%3N)
 g++ -std=c++17 test.cpp -o test 2>/tmp/cerr
 COMPILE_EXIT=$?
@@ -47,6 +51,9 @@ echo "RUN_MS:$((END_R - START_R))" >&2
 
 @app.post("/test")
 async def test_judge(body: TestCode):
+    # Generate a unique name for this specific run
+    container_name = f"judge_{uuid.uuid4().hex}"
+    
     with tempfile.TemporaryDirectory() as tmpdir:
         with open(os.path.join(tmpdir, "test.cpp"), "w") as f:
             f.write(body.code)
@@ -56,19 +63,29 @@ async def test_judge(body: TestCode):
         t0 = time.time()
         try:
             result = subprocess.run(
-                ["docker", "run", "--rm",
-                 "-v", f"{tmpdir}:/code", "-w", "/code",
-                 "--network=none", "--memory=128m",
-                 "gcc:latest", "sh", "run.sh"],
+                [
+                    "docker", "run", "--rm",
+                    "--name", container_name,        # Name the container so we can kill it later
+                    "-v", f"{tmpdir}:/code", 
+                    "-w", "/code",
+                    "--network=none", 
+                    "--memory=128m", 
+                    "--cpus=0.5",                    # Limit CPU usage to 50% of one core
+                    "--pids-limit=64",               # Prevent fork bombs (C++ system() calls)
+                    "--log-driver=none",             # CRITICAL: Stops Docker from writing logs to your SSD
+                    "gcc:latest", "sh", "run.sh"
+                ],
                 capture_output=True, text=True, timeout=15,
             )
             elapsed_ms = round((time.time() - t0) * 1000, 1)
 
-            # Parse timing markers out of stderr
             stderr_lines = result.stderr.splitlines()
             compile_ms = next((int(l.split(":")[1]) for l in stderr_lines if l.startswith("COMPILE_MS:")), None)
             run_ms     = next((int(l.split(":")[1]) for l in stderr_lines if l.startswith("RUN_MS:")), None)
             clean_stderr = "\n".join(l for l in stderr_lines if not l.startswith(("COMPILE_MS:", "RUN_MS:")))
+
+            # Truncate massive outputs so they don't crash your FastAPI server memory
+            stdout_clean = result.stdout[:10000] + ("\n...[truncated]" if len(result.stdout) > 10000 else "")
 
             if result.returncode != 0 and run_ms is None:
                 return {
@@ -79,17 +96,21 @@ async def test_judge(body: TestCode):
 
             return {
                 "status": "ok",
-                "stdout": result.stdout,
+                "stdout": stdout_clean,
                 "stderr": clean_stderr,
                 "exit_code": result.returncode,
                 "compile_ms": compile_ms,
                 "run_ms": run_ms,
                 "elapsed_ms": elapsed_ms,
             }
+            
         except subprocess.TimeoutExpired:
+            # CRITICAL: Python stopped waiting, but Docker is still running. We MUST kill it.
+            subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+            
             return {
                 "status": "timeout",
-                "message": "Took too long~",
+                "message": "Execution timed out (15 seconds limit).",
                 "elapsed_ms": round((time.time() - t0) * 1000, 1),
             }
 
