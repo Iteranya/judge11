@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🐳 Judge Test Playground</title>
+    <!-- Ace Editor via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/ace.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Fira Code', 'Consolas', monospace; background: #1a1a2e; color: #eee; height: 100vh; display: flex; flex-direction: column; }
@@ -17,7 +19,12 @@
         .panel-header .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
         .dot.red { background: #e94560; }
         .dot.green { background: #4ecca3; }
-        textarea { flex: 1; background: #0f0f23; color: #a8d8a8; border: none; padding: 16px; font-family: 'Fira Code', 'Consolas', monospace; font-size: 0.85rem; resize: none; outline: none; line-height: 1.6; tab-size: 4; }
+        /* Ace editor container */
+        #editor {
+            flex: 1;
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
         #output { flex: 1; background: #0f0f23; color: #ccc; padding: 16px; font-size: 0.85rem; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; }
         .btn-row { padding: 10px 20px; background: #16213e; border-top: 1px solid #333; display: flex; gap: 10px; align-items: center; }
         button { padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.8rem; font-weight: bold; transition: 0.2s; }
@@ -37,11 +44,12 @@
     <div class="main">
         <div class="panel">
             <div class="panel-header"><span class="dot red"></span> C++ Code</div>
-            <textarea id="code" spellcheck="false">#include <iostream>
+            <!-- Ace Editor will live here -->
+            <div id="editor">#include <iostream>
 int main() {
     std::cout << "Hello World!" << std::endl;
     return 0;
-}</textarea>
+}</div>
         </div>
         <div class="panel">
             <div class="panel-header"><span class="dot green"></span> Output</div>
@@ -54,18 +62,39 @@ int main() {
     </div>
 
     <script>
+        // Initialize Ace Editor
+        const editor = ace.edit("editor");
+        editor.setTheme("ace/theme/monokai");
+        editor.session.setMode("ace/mode/c_cpp");
+        editor.setOptions({
+            fontSize: "0.85rem",
+            showPrintMargin: false,
+            enableBasicAutocompletion: true,
+            enableLiveAutocompletion: true,
+            enableSnippets: true
+        });
+        // Set initial content (already in the div, but Ace uses its own session)
+        editor.setValue(`#include <iostream>
+int main() {
+    std::cout << "Hello World!" << std::endl;
+    return 0;
+}`);
+        editor.clearSelection();
+
+        // Ctrl+Enter shortcut (attach to the editor's container)
+        editor.container.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                e.preventDefault();
+                runCode();
+            }
+        });
+
         const output = document.getElementById('output');
         const status = document.getElementById('status');
         const runBtn = document.getElementById('runBtn');
-        const textarea = document.getElementById('code');
-
-        // Ctrl+Enter shortcut
-        textarea.addEventListener('keydown', (e) => {
-            if (e.ctrlKey && e.key === 'Enter') runCode();
-        });
 
         async function runCode() {
-            const code = textarea.value;
+            const code = editor.getValue();
             if (!code.trim()) return;
 
             runBtn.disabled = true;
