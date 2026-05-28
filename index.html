@@ -19,12 +19,7 @@
         .panel-header .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
         .dot.red { background: #e94560; }
         .dot.green { background: #4ecca3; }
-        /* Ace editor container */
-        #editor {
-            flex: 1;
-            font-size: 0.85rem;
-            line-height: 1.6;
-        }
+        #editor { flex: 1; font-size: 0.85rem; line-height: 1.6; }
         #output { flex: 1; background: #0f0f23; color: #ccc; padding: 16px; font-size: 0.85rem; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; }
         .btn-row { padding: 10px 20px; background: #16213e; border-top: 1px solid #333; display: flex; gap: 10px; align-items: center; }
         button { padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.8rem; font-weight: bold; transition: 0.2s; }
@@ -34,6 +29,7 @@
         #status { font-size: 0.75rem; color: #888; margin-left: auto; }
         .verdict-ac { color: #4ecca3; font-weight: bold; }
         .verdict-err { color: #e94560; font-weight: bold; }
+        .timing-info { font-size: 0.8rem; color: #ffb347; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -44,7 +40,6 @@
     <div class="main">
         <div class="panel">
             <div class="panel-header"><span class="dot red"></span> C++ Code</div>
-            <!-- Ace Editor will live here -->
             <div id="editor">#include <iostream>
 int main() {
     std::cout << "Hello World!" << std::endl;
@@ -73,7 +68,6 @@ int main() {
             enableLiveAutocompletion: true,
             enableSnippets: true
         });
-        // Set initial content (already in the div, but Ace uses its own session)
         editor.setValue(`#include <iostream>
 int main() {
     std::cout << "Hello World!" << std::endl;
@@ -81,7 +75,7 @@ int main() {
 }`);
         editor.clearSelection();
 
-        // Ctrl+Enter shortcut (attach to the editor's container)
+        // Ctrl+Enter shortcut
         editor.container.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 'Enter') {
                 e.preventDefault();
@@ -92,6 +86,20 @@ int main() {
         const output = document.getElementById('output');
         const status = document.getElementById('status');
         const runBtn = document.getElementById('runBtn');
+
+        function formatTiming(data) {
+            let lines = [];
+            if (data.compile_ms !== undefined && data.compile_ms !== null) {
+                lines.push(`⏱ Compile: ${data.compile_ms} ms`);
+            }
+            if (data.run_ms !== undefined && data.run_ms !== null) {
+                lines.push(`⚡ Run: ${data.run_ms} ms`);
+            }
+            if (data.elapsed_ms !== undefined && data.elapsed_ms !== null) {
+                lines.push(`🕐 Total elapsed: ${data.elapsed_ms} ms`);
+            }
+            return lines.join('  |  ');
+        }
 
         async function runCode() {
             const code = editor.getValue();
@@ -109,16 +117,48 @@ int main() {
                 });
                 const data = await res.json();
 
+                // Build timing info string
+                const timingInfo = `<div class="timing-info">${formatTiming(data)}</div>`;
+
                 if (data.status === 'ok') {
-                    output.innerHTML = `<span class="verdict-ac">✓ Compiled & Ran Successfully</span>\n\n${escapeHtml(data.stdout)}`;
-                    if (data.stderr) output.innerHTML += `\n\n<span class="verdict-err">[stderr]</span>\n${escapeHtml(data.stderr)}`;
+                    output.innerHTML =
+                        `<span class="verdict-ac">✓ Compiled & Ran Successfully</span>\n\n` +
+                        escapeHtml(data.stdout) +
+                        (data.stderr ? `\n\n<span class="verdict-err">[stderr]</span>\n${escapeHtml(data.stderr)}` : '') +
+                        timingInfo;
                     status.textContent = `Done (exit ${data.exit_code})`;
                 } else if (data.status === 'compile_error') {
-                    output.innerHTML = `<span class="verdict-err">✗ Compilation Error</span>\n\n${escapeHtml(data.stderr)}`;
+                    output.innerHTML =
+                        `<span class="verdict-err">✗ Compilation Error</span>\n\n` +
+                        escapeHtml(data.stderr || data.message || '') +
+                        timingInfo;
                     status.textContent = 'Compile Error';
+                } else if (data.status === 'compile_timeout') {
+                    output.innerHTML =
+                        `<span class="verdict-err">⏱ Compilation Timeout</span>\n\n${data.message}` +
+                        timingInfo;
+                    status.textContent = 'Compile Timeout';
                 } else if (data.status === 'timeout') {
-                    output.innerHTML = `<span class="verdict-err">⏱ Timeout</span>\n\n${data.message}`;
+                    output.innerHTML =
+                        `<span class="verdict-err">⏱ Runtime Timeout</span>\n\n${data.message}\n${data.stdout ? escapeHtml(data.stdout) : ''}` +
+                        (data.stderr ? `\n\n<span class="verdict-err">[stderr]</span>\n${escapeHtml(data.stderr)}` : '') +
+                        timingInfo;
                     status.textContent = 'Timeout';
+                } else if (data.status === 'runtime_error') {
+                    output.innerHTML =
+                        `<span class="verdict-err">💥 Runtime Error</span>\n\n${data.message}` +
+                        (data.stdout ? `\n\n${escapeHtml(data.stdout)}` : '') +
+                        (data.stderr ? `\n\n${escapeHtml(data.stderr)}` : '') +
+                        timingInfo;
+                    status.textContent = `Runtime Error (exit ${data.exit_code || '?'})`;
+                } else if (data.status === 'system_error') {
+                    output.innerHTML =
+                        `<span class="verdict-err">⚠️ System Error</span>\n\n${escapeHtml(data.message)}` +
+                        timingInfo;
+                    status.textContent = 'System Error';
+                } else {
+                    output.innerHTML = `<span class="verdict-err">Unknown response</span>\n\n${JSON.stringify(data, null, 2)}`;
+                    status.textContent = 'Unknown';
                 }
             } catch (err) {
                 output.innerHTML = `<span class="verdict-err">✗ Connection Error</span>\n\n${escapeHtml(err.message)}`;
