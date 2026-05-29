@@ -102,25 +102,24 @@ def run_judge(body: TestCode):
     container = container_pool.get()  # blocks until a container is free
     t0 = time.time()
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cpp_path = os.path.join(tmpdir, "test.cpp")
-            sh_path = os.path.join(tmpdir, "run.sh")
+        # 1. Pipe user code directly from Python RAM into Container RAM (Bypasses docker cp completely)
+        subprocess.run(
+            ["docker", "exec", "-i", container, "sh", "-c", "cat > /code/test.cpp"],
+            input=body.code, text=True, check=True
+        )
+        
+        # 2. Pipe runner script directly into Container RAM
+        subprocess.run(
+            ["docker", "exec", "-i", container, "sh", "-c", "cat > /code/run.sh"],
+            input=RUNNER_SCRIPT, text=True, check=True
+        )
 
-            with open(cpp_path, "w") as f:
-                f.write(body.code)
-            with open(sh_path, "w") as f:
-                f.write(RUNNER_SCRIPT)
-
-            # Copy files into the container
-            subprocess.run(["docker", "cp", cpp_path, f"{container}:/code/test.cpp"], check=True)
-            subprocess.run(["docker", "cp", sh_path,  f"{container}:/code/run.sh"],  check=True)
-
-            # Execute code inside the container
-            result = subprocess.run(
-                ["docker", "exec", container, "sh", "/code/run.sh"],
-                capture_output=True, text=True, timeout=10
-            )
-            elapsed_ms = round((time.time() - t0) * 1000, 1)
+        # 3. Execute the code (Output is captured directly into Python RAM)
+        result = subprocess.run(
+            ["docker", "exec", container, "sh", "/code/run.sh"],
+            capture_output=True, text=True, timeout=10
+        )
+        elapsed_ms = round((time.time() - t0) * 1000, 1)
 
         stderr_lines = result.stderr.splitlines()
         compile_ms = next((int(l.split(":")[1]) for l in stderr_lines if l.startswith("COMPILE_MS:")), None)
@@ -133,7 +132,7 @@ def run_judge(body: TestCode):
             l for l in stderr_lines
             if not l.startswith(("COMPILE_MS:", "RUN_MS:", "TIMEOUT_ERROR:"))
         )
-        stdout_clean = result.stdout  # Truncation is now safely handled by bash `head -c`
+        stdout_clean = result.stdout
 
         if is_compile_timeout:
             return {"status": "compile_timeout", "message": "Compilation exceeded 5 seconds.", "compile_ms": compile_ms}
@@ -147,17 +146,14 @@ def run_judge(body: TestCode):
         return {"status": "ok", "stdout": stdout_clean, "stderr": clean_stderr, "exit_code": result.returncode, "compile_ms": compile_ms, "run_ms": run_ms, "elapsed_ms": elapsed_ms}
 
     except subprocess.TimeoutExpired:
-        # SECURITY FIX: If host times out, rogue processes might still be eating up container PIDs.
-        # We must aggressively kill everything in this container.
+        # Host timed out, aggressively kill container processes
         subprocess.run(["docker", "exec", "-u", "0", container, "sh", "-c", "killall -9 test g++ cc1plus || true"], capture_output=True)
         return {"status": "system_error", "message": "Container timed out.", "elapsed_ms": round((time.time() - t0) * 1000, 1)}
 
     finally:
-        # SECURITY FIX: Run cleanup as root (-u 0) and use rm -rf to thoroughly wipe all user-generated files 
-        # (even weird files the C++ code might have created) to ensure a perfectly clean slate for the next run.
+        # Wipe the RAM disk completely clean for the next request
         subprocess.run(["docker", "exec", "-u", "0", container, "sh", "-c", "rm -rf /code/* /tmp/*"], capture_output=True)
         container_pool.put(container)
-
 @app.post("/test")
 async def test_judge(body: TestCode):
     return await run_in_threadpool(lambda: run_judge(body))
