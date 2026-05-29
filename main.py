@@ -62,6 +62,7 @@ def init_pool():
         subprocess.run([
             "docker", "run", "-d",
             "--name", name,
+            "--cpuset-cpus", "1-3",
             "--network=none",
             "--memory=256m",           # <-- INCREASED from 128m
             "--memory-swap=256m",      # <-- ADDED (Prevents slow swap thrashing)
