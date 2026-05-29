@@ -67,12 +67,12 @@ def init_pool():
             "--cpus=0.5",
             "--pids-limit=64",
             "--log-driver=none",
-            "--read-only",             # SECURITY: Prevents tampering with system files (g++, headers)
-            "--tmpfs", "/tmp:exec",    # SECURITY: Ephemeral RAM space for compilation artifacts
-            "--tmpfs", "/code:exec",   # SECURITY: Ephemeral RAM space for user code
+            "--read-only",             
+            "--tmpfs", "/tmp:exec,mode=1777",   # <--- ADDED ,mode=1777
+            "--tmpfs", "/code:exec,mode=1777",  # <--- ADDED ,mode=1777
             "--workdir", "/code",      
-            "--user", "1000:1000",     # SECURITY: Runs as guest. Prevents breaking the container for the next user.
-            "gcc-pch",                 # Your custom image with PCH
+            "--user", "1000:1000",     
+            "gcc-pch",                 
             "sleep", "infinity"
         ], check=True)
         container_pool.put(name)
