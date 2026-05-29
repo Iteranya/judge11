@@ -63,8 +63,9 @@ def init_pool():
             "docker", "run", "-d",
             "--name", name,
             "--network=none",
-            "--memory=128m",
-            "--cpus=0.5",
+            "--memory=256m",           # <-- INCREASED from 128m
+            "--memory-swap=256m",      # <-- ADDED (Prevents slow swap thrashing)
+            "--cpus=1.0",              # <-- INCREASED from 0.5 (Compiling takes CPU power)
             "--pids-limit=64",
             "--log-driver=none",
             "--read-only",             
