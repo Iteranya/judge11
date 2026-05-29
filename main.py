@@ -25,7 +25,7 @@ ulimit -f 10000
 
 START_C=$(date +%s%3N)
 # -k 1s forces a SIGKILL if the process ignores the standard timeout
-timeout -k 1s 5s g++ -std=c++17 test.cpp -o test 2>/tmp/cerr
+timeout -k 1s 5s g++ -std=c++17 -O2 test.cpp -o test 2>/tmp/cerr
 COMPILE_EXIT=$?
 END_C=$(date +%s%3N)
 echo "COMPILE_MS:$((END_C - START_C))" >&2
